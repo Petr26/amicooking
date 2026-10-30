@@ -2,7 +2,8 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts } from '../theme/tokens';
 import { useStore } from '../state/store';
-import { Meta, Rule, Segmented, Toggle } from '../components/ui';
+import { GhostLink, Meta, Rule, Segmented, Toggle } from '../components/ui';
+import { SignInNudge } from '../components/account';
 
 const TIME_VALS = [15, 30, 60, 999];
 
@@ -20,6 +21,19 @@ export function YouScreen() {
     <ScrollView style={{ flex: 1 }}>
       <Text style={s.title}>{T.youTitle}</Text>
       <View style={s.strongRule} />
+      {st.user ? (
+        <View style={s.account}>
+          <Meta>{T.account}</Meta>
+          <Text style={s.email}>{st.user.email}</Text>
+          <Meta size={9.5} spacingEm={0.1} color={colors.accentDeep}>
+            {(st.plan === 'pro' ? T.planPro : T.planFree) + ' · ' + T.dishUsage(st.myDishCount, st.dishLimit)}
+          </Meta>
+          <Text style={[s.smallNote, { paddingHorizontal: 0 }]}>{T.accountNote}</Text>
+          <GhostLink label={T.signOut + ' →'} onPress={st.signOut} style={{ paddingHorizontal: 0, marginTop: 6 }} />
+        </View>
+      ) : (
+        <SignInNudge style={{ marginHorizontal: 20, marginTop: 18 }} />
+      )}
       <Meta style={{ paddingHorizontal: 20, paddingTop: 18 }}>{T.language}</Meta>
       <Segmented
         style={{ marginTop: 10, marginHorizontal: 20 }}
@@ -85,6 +99,22 @@ const s = StyleSheet.create({
     includeFontPadding: false,
   },
   strongRule: { height: 2, backgroundColor: colors.ruleStrong },
+  account: {
+    marginHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.ruleHairline,
+  },
+  email: {
+    fontFamily: fonts.extrabold,
+    fontSize: 19,
+    lineHeight: 19 * 1.1,
+    letterSpacing: 19 * -0.01,
+    color: colors.ink,
+    marginTop: 8,
+    marginBottom: 6,
+  },
   smallNote: {
     paddingTop: 8,
     paddingHorizontal: 20,

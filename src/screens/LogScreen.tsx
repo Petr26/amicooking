@@ -4,6 +4,7 @@ import { colors, fonts } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { Meta, Rule } from '../components/ui';
 import { seedLog } from '../data/strings';
+import { logWhen } from '../util/clock';
 
 export function LogScreen() {
   const st = useStore();
@@ -12,7 +13,7 @@ export function LogScreen() {
   const rows = st.log.map((e, i) => {
     if ('custom' in e) {
       const d = st.allDishes.find((x) => x.id === e.dishId);
-      return { key: i, when: T.tonightWhen, name: d ? st.dishName(d) : '', note: T.loggedNote, cooked: true, outcome: '' };
+      return { key: i, when: e.at ? logWhen(lang, e.at, T.tonightWhen) : T.tonightWhen, name: d ? st.dishName(d) : '', note: T.loggedNote, cooked: true, outcome: '' };
     }
     const seed = seedLog[e.seed];
     const d = seed.dishId ? st.allDishes.find((x) => x.id === seed.dishId) : null;

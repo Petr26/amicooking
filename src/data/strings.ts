@@ -37,6 +37,18 @@ export type UIStrings = {
   customStepT: string; customStepD: string;
   badgeOrdered: string; nothingWord: string;
   jabs: string[];
+  // Account
+  account: string; signIn: string; signOut: string; notNow: string; okWord: string;
+  nudgeTitle: string; nudgeBody: (n: number, max: number, next: number) => string;
+  authTitleIn: string; authTitleUp: string; authSub: string;
+  emailLbl: string; emailPh: string; passwordLbl: string; passwordPh: string;
+  authSubmitIn: string; authSubmitUp: string; authToUp: string; authToIn: string;
+  authErr: Record<'bad' | 'net' | 'taken' | 'short' | 'email', string>;
+  planFree: string; planPro: string; dishUsage: (n: number, max: number) => string;
+  limitTitle: string; limitAnon: (max: number, next: number) => string;
+  limitFree: (max: number) => string; limitPro: (max: number) => string;
+  overflowTitle: string; overflowBody: (n: number) => string;
+  accountNote: string;
 };
 
 export const ui: Record<Lang, UIStrings> = {
@@ -80,6 +92,30 @@ export const ui: Record<Lang, UIStrings> = {
     customStepT: 'You added this one. You know the steps.', customStepD: 'Cook it the way you meant to when you added it.',
     badgeOrdered: 'Ordered in', nothingWord: 'Nothing',
     jabs: ['', 'Fine. Second opinion:', 'Third answer. You are getting picky.', 'Four rerolls. Cooking would have been faster.', 'This is a decision app, not a slot machine. Mostly.', 'Six. We are going in circles and the shops are closing.', 'Seven answers in. The problem may not be the answers.', 'Keep going. The eggs are following this closely.', 'At this point I am simply naming food at you.'],
+    account: 'Account', signIn: 'Sign in', signOut: 'Sign out', notNow: 'Not now', okWord: 'Fine',
+    nudgeTitle: 'Only on this phone.',
+    nudgeBody: (n, max, next) => n + ' of ' + max + ' dishes, kept on this phone and nowhere else. Sign in and they survive a new phone. You also get room for ' + next + '.',
+    authTitleIn: 'Sign in.', authTitleUp: 'New account.',
+    authSub: 'Your dishes, log and settings, kept somewhere sturdier than one phone.',
+    emailLbl: 'E-mail', emailPh: 'you@example.com', passwordLbl: 'Password', passwordPh: 'At least 8 characters',
+    authSubmitIn: 'Sign in', authSubmitUp: 'Create account',
+    authToUp: 'No account yet? Create one', authToIn: 'Already have one? Sign in',
+    authErr: {
+      bad: 'That e-mail and password do not match. One of them is wrong.',
+      net: 'Could not reach the server. Try again in a moment.',
+      taken: 'That e-mail already has an account. Sign in instead.',
+      short: 'The password needs at least 8 characters.',
+      email: 'That is not an e-mail address.',
+    },
+    planFree: 'Free', planPro: 'Subscriber',
+    dishUsage: (n, max) => n + ' of ' + max + ' dishes',
+    limitTitle: 'Full.',
+    limitAnon: (max, next) => max + ' dishes is the limit on this phone. Sign in and it becomes ' + next + '.',
+    limitFree: (max) => max + ' dishes is the free limit. A subscription for more is on its way. Until then, remove one you never cook.',
+    limitPro: (max) => max + ' dishes. That is the ceiling. Some of these you have never cooked.',
+    overflowTitle: 'Some did not fit.',
+    overflowBody: (n) => n + (n === 1 ? ' dish' : ' dishes') + ' from this phone did not fit into the account limit and were left off.',
+    accountNote: 'Saved dishes, your own dishes, the log and these settings follow the account.',
   },
   cs: {
     appTitle: 'Vařím dneska?', headerMeta: 'Sólo · út 19:04', tonightLabel: 'Dnes večer', yesWord: 'Jo.',
@@ -121,6 +157,30 @@ export const ui: Record<Lang, UIStrings> = {
     customStepT: 'Tohle jste přidali vy. Postup znáte.', customStepD: 'Uvařte to tak, jak jste to při přidávání mysleli.',
     badgeOrdered: 'Objednáno', nothingWord: 'Nic',
     jabs: ['', 'Dobře. Druhý názor:', 'Třetí odpověď. Začínáte být vybíraví.', 'Čtyři přehození. Vařit by bylo rychlejší.', 'Tohle je rozhodovací aplikace, ne hrací automat. Většinou.', 'Šest. Točíme se v kruhu a obchody zavírají.', 'Sedmá odpověď. Problém možná nebude v odpovědích.', 'Pokračujte. Vejce to sledují se zájmem.', 'V tuhle chvíli už na vás prostě jen vykřikuji jídla.'],
+    account: 'Účet', signIn: 'Přihlásit se', signOut: 'Odhlásit se', notNow: 'Teď ne', okWord: 'Dobře',
+    nudgeTitle: 'Jen v tomhle telefonu.',
+    nudgeBody: (n, max, next) => n + ' z ' + max + ' jídel, uložených v tomhle telefonu a nikde jinde. Přihlaste se a přežijí i nový telefon. A vejde se vám jich ' + next + '.',
+    authTitleIn: 'Přihlášení.', authTitleUp: 'Nový účet.',
+    authSub: 'Vaše jídla, záznam a nastavení, uložené někde pevněji než v jednom telefonu.',
+    emailLbl: 'E-mail', emailPh: 'vy@example.com', passwordLbl: 'Heslo', passwordPh: 'Aspoň 8 znaků',
+    authSubmitIn: 'Přihlásit se', authSubmitUp: 'Vytvořit účet',
+    authToUp: 'Ještě nemáte účet? Založte si ho', authToIn: 'Účet už máte? Přihlaste se',
+    authErr: {
+      bad: 'E-mail a heslo k sobě nesedí. Jedno z nich je špatně.',
+      net: 'Server se nepodařilo zastihnout. Zkuste to za chvíli.',
+      taken: 'Tenhle e-mail už účet má. Přihlaste se.',
+      short: 'Heslo musí mít aspoň 8 znaků.',
+      email: 'Tohle není e-mailová adresa.',
+    },
+    planFree: 'Zdarma', planPro: 'Předplatné',
+    dishUsage: (n, max) => n + ' z ' + max + ' jídel',
+    limitTitle: 'Plno.',
+    limitAnon: (max, next) => 'V tomhle telefonu je limit ' + max + ' jídel. Po přihlášení ' + next + '.',
+    limitFree: (max) => max + ' jídel je limit zdarma. Předplatné na víc se chystá. Do té doby odeberte něco, co nikdy nevaříte.',
+    limitPro: (max) => max + ' jídel. Víc už ne. Některá z nich jste nikdy nevařili.',
+    overflowTitle: 'Něco se nevešlo.',
+    overflowBody: (n) => n + ' ' + (n === 1 ? 'jídlo' : n <= 4 ? 'jídla' : 'jídel') + ' z tohohle telefonu se nevešlo do limitu účtu a zůstalo stranou.',
+    accountNote: 'Uložená jídla, vaše vlastní jídla, záznam i tohle nastavení jdou s účtem.',
   },
 };
 

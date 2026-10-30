@@ -17,6 +17,8 @@ import { SavedScreen } from './src/screens/SavedScreen';
 import { LogScreen } from './src/screens/LogScreen';
 import { YouScreen } from './src/screens/YouScreen';
 import { CookScreen } from './src/screens/CookScreen';
+import { AuthScreen } from './src/screens/AuthScreen';
+import { NoticeSheet } from './src/components/account';
 import { setupAndroidChannel } from './src/notifications';
 import { headerMeta } from './src/util/clock';
 
@@ -78,6 +80,15 @@ function Root() {
     );
   }
 
+  if (st.authOpen) {
+    return (
+      <>
+        <StatusBar style="dark" />
+        <AuthScreen />
+      </>
+    );
+  }
+
   return (
     <View style={[s.app, { paddingTop: insets.top + 12 }]}>
       <StatusBar style="dark" />
@@ -93,6 +104,7 @@ function Root() {
         {st.tab === 'you' && <YouScreen />}
       </View>
       <TabBar />
+      <NoticeSheet />
     </View>
   );
 }

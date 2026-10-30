@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { colors, fonts } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { BlockButton, GhostLink, Meta, Segmented } from '../components/ui';
+import { SignInNudge } from '../components/account';
 
 export function SavedScreen() {
   const st = useStore();
@@ -16,7 +17,7 @@ export function SavedScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 14 }}>
           <Meta size={10} spacingEm={0.1}>{T.dishCount(st.saved.length)}</Meta>
           <Pressable
-            onPress={() => setAdding(true)}
+            onPress={() => st.checkRoom() && setAdding(true)}
             style={({ pressed }) => [s.addBtn, pressed && { backgroundColor: colors.accentPressed }]}
           >
             <Text style={s.addBtnLabel}>+ {T.addDish}</Text>
@@ -40,6 +41,7 @@ function SavedList() {
         <Text style={s.emptyTitle}>{T.nothingHere}</Text>
         <Text style={s.emptySub}>{T.nothingSub}</Text>
         <BlockButton label={T.getVerdict} onPress={st.goToVerdict} />
+        <SignInNudge style={{ marginTop: 28 }} />
       </View>
     );
   }
@@ -63,6 +65,7 @@ function SavedList() {
           </View>
         </View>
       ))}
+      <SignInNudge style={{ margin: 20 }} />
     </View>
   );
 }
@@ -78,8 +81,7 @@ function AddDishForm({ onDone }: { onDone: () => void }) {
   const save = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    st.addCustomDish(trimmed, mins, pans2, note.trim());
-    onDone();
+    if (st.addCustomDish(trimmed, mins, pans2, note.trim())) onDone();
   };
 
   return (

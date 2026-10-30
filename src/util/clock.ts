@@ -16,6 +16,14 @@ export function headerMeta(lang: Lang, at: number = Date.now()): string {
   return solo + ' · ' + DAYS[lang][d.getDay()] + ' ' + fmtHM(d);
 }
 
+// Log date column: "Tonight" for today, otherwise "Mon 24" / "po 24".
+export function logWhen(lang: Lang, iso: string, today: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return today;
+  if (d.toDateString() === new Date().toDateString()) return today;
+  return DAYS[lang][d.getDay()] + ' ' + d.getDate();
+}
+
 export function mmss(totalSecs: number): string {
   const m = Math.floor(totalSecs / 60);
   const r = totalSecs % 60;

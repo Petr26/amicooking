@@ -1,13 +1,20 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { dishes as baseDishes, steps as baseSteps, Dish, Step } from '../data/dishes';
-import { ui, seedLog, Lang, UIStrings } from '../data/strings';
+import { Dish, Step } from '../data/dishes';
+import { bundledCatalog, Catalog, fetchCatalog, loadCachedCatalog } from '../data/catalog';
+import { ui, Lang, UIStrings } from '../data/strings';
 import { cancelDailyNudge, scheduleDailyNudge } from '../notifications';
+import { pb, restoreAuth, fetchLimits, defaultLimits, Limits, Plan, planOf, newRecordId, authErrorOf, AuthError } from '../api/pb';
+import { enqueueOp, flush, makeCustomDish, mergeOps, pull, LogEntry, Op, Settings } from './sync';
+
+export type { LogEntry } from './sync';
 
 export type Tab = 'tonight' | 'saved' | 'log' | 'you';
 export type Mode = 'verdict' | 'committed' | 'optout' | 'cooking' | 'cookdone';
 
-export type LogEntry = { seed: number } | { custom: true; dishId: string };
+// limit: tried to go past the dish limit. overflow: n dishes from this phone did not fit the account.
+export type Notice = { kind: 'limit' } | { kind: 'overflow'; n: number } | null;
 
 type PersistedState = {
   saved: string[];
@@ -20,6 +27,7 @@ type PersistedState = {
   lang: Lang;
   totalRerolls: number;
   totalYeses: number;
+  outbox: Op[];
 };
 
 const STORAGE_KEY = 'amicooking:v1';
@@ -35,7 +43,11 @@ const defaults: PersistedState = {
   lang: 'en',
   totalRerolls: 0,
   totalYeses: 0,
+  outbox: [],
 };
+
+// Custom dish ids used to be 'c' + Date.now() (14 chars); the backend wants 15.
+const fixLegacyId = (id: string) => (/^c\d{13}$/.test(id) ? id + '0' : id);
 
 export type Store = {
   hydrated: boolean;
@@ -57,6 +69,14 @@ export type Store = {
   cookDish: Dish;
   cookSteps: Step[];
   cookStep: number;
+  // Account & limits
+  user: { id: string; email: string } | null;
+  plan: Plan;
+  limits: Limits;
+  myDishCount: number;
+  dishLimit: number;
+  notice: Notice;
+  authOpen: boolean;
   dishName: (d: Dish) => string;
   dishNote: (d: Dish) => string;
   dishMissing: (d: Dish) => string;
@@ -84,8 +104,15 @@ export type Store = {
   cookBack: () => void;
   cookRestart: () => void;
   cookLogIt: () => void;
-  addCustomDish: (name: string, mins: number, pans2: boolean, note: string) => void;
+  addCustomDish: (name: string, mins: number, pans2: boolean, note: string) => boolean;
+  checkRoom: () => boolean;
   goToVerdict: () => void;
+  openAuth: () => void;
+  closeAuth: () => void;
+  signIn: (email: string, password: string) => Promise<AuthError | null>;
+  signUp: (email: string, password: string) => Promise<AuthError | null>;
+  signOut: () => void;
+  dismissNotice: () => void;
 };
 
 const StoreContext = createContext<Store | null>(null);
@@ -109,17 +136,92 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(defaults.lang);
   const [totalRerolls, setTotalRerolls] = useState(defaults.totalRerolls);
   const [totalYeses, setTotalYeses] = useState(defaults.totalYeses);
+  const [outbox, setOutbox] = useState<Op[]>([]);
   const [cookDishId, setCookDishId] = useState('cacio');
   const [cookStep, setCookStep] = useState(0);
+  const [catalog, setCatalog] = useState<Catalog>(bundledCatalog);
+  const [userRecord, setUserRecord] = useState<Record<string, any> | null>(null);
+  const [limits, setLimits] = useState<Limits>(defaultLimits);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+
+  // The outbox is read by async sync code, so it also lives in a ref. While a batch is
+  // being sent it sits in `inflight`; new ops queue up behind it. Both are persisted, so
+  // an app kill mid-sync only means a few ops get re-sent.
+  const outboxRef = useRef<Op[]>([]);
+  const inflight = useRef<Op[]>([]);
+  const userIdRef = useRef<string | null>(null);
+  const syncing = useRef(false);
+  const lastSettings = useRef('');
+  const user = userRecord ? { id: userRecord.id as string, email: userRecord.email as string } : null;
+  userIdRef.current = user?.id ?? null;
+
+  const setQueue = useCallback((q: Op[]) => {
+    outboxRef.current = q;
+    setOutbox([...inflight.current, ...q]);
+  }, []);
+
+  const applySettings = (s: Settings) => {
+    setMaxTimeState(s.maxTime);
+    setNoFish(s.noFish);
+    setBreakRotation(s.breakRotation);
+    setAskEarly(s.askEarly);
+    setLangState(s.lang);
+  };
+
+  // Flush the outbox, then (once nothing is pending) take the server state as truth.
+  const sync = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!uid || syncing.current) return;
+    syncing.current = true;
+    try {
+      while (outboxRef.current.length) {
+        inflight.current = outboxRef.current;
+        outboxRef.current = [];
+        const { remaining, limited } = await flush(inflight.current, uid);
+        inflight.current = [];
+        setQueue([...remaining, ...outboxRef.current]);
+        if (limited) setNotice({ kind: 'overflow', n: limited });
+        if (remaining.length) return; // offline — try again later
+      }
+      const r = await pull(uid);
+      if (userIdRef.current !== uid || outboxRef.current.length) return;
+      setUserRecord(r.user);
+      setSaved(r.saved);
+      setCustomDishes(r.customDishes);
+      setLog(r.log);
+      setTotalRerolls(r.totalRerolls);
+      setTotalYeses(r.totalYeses);
+      if (r.settings) {
+        lastSettings.current = JSON.stringify(r.settings);
+        applySettings(r.settings);
+      }
+    } catch (e: any) {
+      if (e?.status === 401) pb.authStore.clear();
+    } finally {
+      syncing.current = false;
+    }
+  }, [setQueue]);
+
+  const queue = useCallback(
+    (op: Op) => {
+      if (!userIdRef.current) return;
+      setQueue(enqueueOp(outboxRef.current, op));
+      setTimeout(sync, 0);
+    },
+    [setQueue, sync]
+  );
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => {
+    Promise.all([AsyncStorage.getItem(STORAGE_KEY), loadCachedCatalog(), restoreAuth()])
+      .then(([raw, cached]) => {
+        if (cached) setCatalog(cached);
+        if (pb.authStore.isValid && pb.authStore.record) setUserRecord(pb.authStore.record);
         if (raw) {
           const p: Partial<PersistedState> = JSON.parse(raw);
-          if (p.saved) setSaved(p.saved);
-          if (p.customDishes) setCustomDishes(p.customDishes);
-          if (p.log) setLog(p.log);
+          if (p.saved) setSaved(p.saved.map(fixLegacyId));
+          if (p.customDishes) setCustomDishes(p.customDishes.map((d) => ({ ...d, id: fixLegacyId(d.id) })));
+          if (p.log) setLog(p.log.map((e) => ('custom' in e ? { ...e, dishId: fixLegacyId(e.dishId) } : e)));
           if (p.maxTime != null) setMaxTimeState(p.maxTime);
           if (p.noFish != null) setNoFish(p.noFish);
           if (p.breakRotation != null) setBreakRotation(p.breakRotation);
@@ -127,19 +229,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           if (p.lang) setLangState((scenario[2] as Lang) || p.lang);
           if (p.totalRerolls != null) setTotalRerolls(p.totalRerolls);
           if (p.totalYeses != null) setTotalYeses(p.totalYeses);
+          if (p.outbox) setQueue(p.outbox);
         }
       })
       .catch(() => {})
       .finally(() => setHydrated(true));
-  }, []);
+  }, [setQueue]);
+
+  // Fresh catalog, limits and account data at launch and whenever the app comes back.
+  const refresh = useCallback(() => {
+    fetchCatalog().then(setCatalog).catch(() => {});
+    fetchLimits().then(setLimits).catch(() => {});
+    sync();
+  }, [sync]);
+  useEffect(() => {
+    if (!hydrated) return;
+    refresh();
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && refresh());
+    return () => sub.remove();
+  }, [hydrated, refresh]);
+
+  // Session expired / cleared elsewhere → back to anonymous.
+  useEffect(() => pb.authStore.onChange((token) => !token && setUserRecord(null)), []);
 
   useEffect(() => {
     if (!hydrated) return;
     const data: PersistedState = {
-      saved, customDishes, log, maxTime, noFish, breakRotation, askEarly, lang, totalRerolls, totalYeses,
+      saved, customDishes, log, maxTime, noFish, breakRotation, askEarly, lang, totalRerolls, totalYeses, outbox,
     };
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
-  }, [hydrated, saved, customDishes, log, maxTime, noFish, breakRotation, askEarly, lang, totalRerolls, totalYeses]);
+  }, [hydrated, saved, customDishes, log, maxTime, noFish, breakRotation, askEarly, lang, totalRerolls, totalYeses, outbox]);
+
+  // Settings follow the account: any local change is queued (pulled values are not echoed back).
+  useEffect(() => {
+    if (!hydrated || !user) return;
+    const settings: Settings = { maxTime, noFish, breakRotation, askEarly, lang };
+    const json = JSON.stringify(settings);
+    if (json === lastSettings.current) return;
+    lastSettings.current = json;
+    queue({ k: 'settings', settings });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, user?.id, maxTime, noFish, breakRotation, askEarly, lang]);
 
   // Keep the 6pm nudge in sync with the toggle. At launch we only (re)schedule
   // if permission was already granted; the permission dialog is shown when the
@@ -152,7 +282,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [hydrated, askEarly, lang]);
 
   const T = ui[lang];
-  const allDishes = useMemo(() => [...baseDishes, ...customDishes], [customDishes]);
+  const allDishes = useMemo(() => [...catalog.dishes, ...customDishes], [catalog, customDishes]);
+
+  // "My dishes" = saved ∪ custom; one shared limit (10 on this phone, 25 signed in, more with a plan).
+  const plan = planOf(userRecord);
+  const dishLimit = user ? limits[plan] : limits.anon;
+  const myKeys = useMemo(() => new Set([...saved, ...customDishes.map((d) => d.id)]), [saved, customDishes]);
+  const myDishCount = myKeys.size;
+  const roomFor = (key?: string) => (key && myKeys.has(key)) || myDishCount < dishLimit;
 
   const pool = useMemo(() => {
     let p = allDishes.filter((d) => d.time <= maxTime && (!noFish || !d.fish));
@@ -168,10 +305,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const stepsFor = useCallback(
     (id: string): Step[] => {
-      if (baseSteps[id]) return baseSteps[id];
+      if (catalog.steps[id]) return catalog.steps[id];
       return [{ t: ui.en.customStepT, d: ui.en.customStepD, tc: ui.cs.customStepT, dc: ui.cs.customStepD }];
     },
-    []
+    [catalog]
   );
   const cookSteps = stepsFor(cookDish.id);
 
@@ -189,7 +326,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setVIdx((i) => (i + 1) % pool.length);
     setRolls((r) => r + 1);
     setTotalRerolls((r) => r + 1);
-  }, [pool.length]);
+    queue({ k: 'counters', rerolls: 1, yeses: 0 });
+  }, [pool.length, queue]);
+
+  const countYes = () => {
+    setTotalYeses((y) => y + 1);
+    queue({ k: 'counters', rerolls: 0, yeses: 1 });
+  };
+
+  const unsave = (id: string) => {
+    setSaved((s) => s.filter((x) => x !== id));
+    queue({ k: 'unsave', dish: id });
+  };
 
   const stats = useMemo(() => {
     const yeses = totalYeses;
@@ -198,6 +346,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const acceptPct = yeses + rerolls ? Math.round((yeses / (yeses + rerolls)) * 100) : 0;
     return { yeses, rerolls, newDishes, acceptPct };
   }, [totalYeses, totalRerolls, customDishes.length]);
+
+  // After signing in: push what this phone collected anonymously, then pull the account.
+  const afterAuth = async (record: Record<string, any>, fresh: boolean) => {
+    const local = { saved, customDishes, log, totalRerolls, totalYeses };
+    setUserRecord(record);
+    userIdRef.current = record.id;
+    let ops = mergeOps(local);
+    // A brand-new account takes this phone's settings; an existing one keeps its own.
+    if (fresh) ops = [{ k: 'settings', settings: { maxTime, noFish, breakRotation, askEarly, lang } }, ...ops];
+    lastSettings.current = '';
+    setQueue(ops);
+    setAuthOpen(false);
+    await sync();
+  };
+
+  const authWith = async (email: string, password: string, create: boolean): Promise<AuthError | null> => {
+    try {
+      if (create) await pb.collection('users').create({ email, password, passwordConfirm: password });
+      const res = await pb.collection('users').authWithPassword(email, password);
+      await afterAuth(res.record, create);
+      return null;
+    } catch (e) {
+      return authErrorOf(e);
+    }
+  };
 
   const store: Store = {
     hydrated,
@@ -219,6 +392,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cookDish,
     cookSteps,
     cookStep,
+    user,
+    plan,
+    limits,
+    myDishCount,
+    dishLimit,
+    notice,
+    authOpen,
     dishName,
     dishNote,
     dishMissing,
@@ -248,7 +428,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     commit: () => {
       setCookDishId(dish.id);
       setCookStep(0);
-      setTotalYeses((y) => y + 1);
+      countYes();
       setMode('committed');
     },
     uncommit: () => {
@@ -261,13 +441,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       advanceRoll();
     },
     toggleSave: () => {
-      setSaved((s) => (s.includes(dish.id) ? s.filter((x) => x !== dish.id) : [...s, dish.id]));
+      if (saved.includes(dish.id)) return unsave(dish.id);
+      if (!roomFor(dish.id)) return setNotice({ kind: 'limit' });
+      setSaved((s) => [...s, dish.id]);
+      queue({ k: 'save', dish: dish.id });
     },
-    removeSaved: (id) => setSaved((s) => s.filter((x) => x !== id)),
+    removeSaved: unsave,
     cookFromSaved: (id) => {
       setCookDishId(id);
       setCookStep(0);
-      setTotalYeses((y) => y + 1);
+      countYes();
       setMode('committed');
       setTab('tonight');
     },
@@ -286,34 +469,56 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setMode('cooking');
     },
     cookLogIt: () => {
-      setLog((l) => [{ custom: true, dishId: cookDish.id }, ...l]);
+      const at = new Date().toISOString();
+      setLog((l) => [{ custom: true, dishId: cookDish.id, at }, ...l]);
+      queue({ k: 'log', dish: cookDish.id, at });
       setMode('verdict');
       setCookStep(0);
       setTab('log');
     },
     addCustomDish: (name, mins, pans2, note) => {
-      const id = 'c' + Date.now();
-      const d: Dish = {
-        id,
-        name,
-        time: mins,
-        pans2,
-        statusNew: true,
-        missKey: null,
-        fish: false,
-        custom: true,
-        dry: note || ui.en.defaultNote,
-        plain: note || ui.en.defaultNote,
-        cs: { name, dry: note || ui.cs.defaultNote, plain: note || ui.cs.defaultNote, miss: 'Nic nechybí' },
-        missEn: 'Nothing missing',
-      };
-      setCustomDishes((c) => [...c, d]);
+      if (!roomFor()) {
+        setNotice({ kind: 'limit' });
+        return false;
+      }
+      const id = newRecordId();
+      setCustomDishes((c) => [...c, makeCustomDish(id, name, mins, pans2, note)]);
       setSaved((s) => [...s, id]);
+      queue({ k: 'dish', id, name, time: mins, pans2, note });
+      queue({ k: 'save', dish: id });
+      return true;
+    },
+    checkRoom: () => {
+      if (roomFor()) return true;
+      setNotice({ kind: 'limit' });
+      return false;
     },
     goToVerdict: () => {
       setTab('tonight');
       setMode('verdict');
     },
+    openAuth: () => {
+      setNotice(null);
+      setAuthOpen(true);
+    },
+    closeAuth: () => setAuthOpen(false),
+    signIn: (email, password) => authWith(email, password, false),
+    signUp: (email, password) => authWith(email, password, true),
+    signOut: () => {
+      // The account keeps everything; this phone starts over empty (settings stay).
+      pb.authStore.clear();
+      userIdRef.current = null;
+      setUserRecord(null);
+      setQueue([]);
+      setSaved([]);
+      setCustomDishes([]);
+      setLog([]);
+      setTotalRerolls(0);
+      setTotalYeses(0);
+      setTab('tonight');
+      setMode('verdict');
+    },
+    dismissNotice: () => setNotice(null),
   };
 
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
