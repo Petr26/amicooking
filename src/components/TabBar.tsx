@@ -32,12 +32,11 @@ export function TabBar() {
 
 const s = StyleSheet.create({
   rule: { height: 2, backgroundColor: colors.ruleStrong },
-  row: { flexDirection: 'row', backgroundColor: colors.ground },
+  row: { flexDirection: 'row', paddingHorizontal: 20, backgroundColor: colors.ground },
   tab: {
     flex: 1,
     paddingTop: 14,
     paddingBottom: 14,
-    paddingLeft: 16,
     marginTop: 0,
   },
   tabOn: {

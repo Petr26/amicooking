@@ -63,7 +63,7 @@ function VerdictScreen() {
             onPress={st.toggleSave}
           />
         </View>
-        <GhostLink label={T.orderIn + ' →'} onPress={st.orderIn} style={{ marginTop: 2, marginBottom: 22 }} />
+        <GhostLink label={T.orderIn + ' →'} onPress={st.orderIn} style={{ marginTop: 2, marginBottom: 22, marginLeft: -4 }} />
       </View>
       <Text style={s.footNote}>{T.footNote}</Text>
     </ScrollView>
