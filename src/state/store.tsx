@@ -5,7 +5,7 @@ import { Dish, Step } from '../data/dishes';
 import { bundledCatalog, Catalog, fetchCatalog, loadCachedCatalog } from '../data/catalog';
 import { ui, Lang, UIStrings } from '../data/strings';
 import { cancelDailyNudge, scheduleDailyNudge } from '../notifications';
-import { pb, restoreAuth, fetchLimits, defaultLimits, Limits, Plan, planOf, newRecordId, authErrorOf, AuthError } from '../api/pb';
+import { pb, isNetworkError, restoreAuth, fetchLimits, defaultLimits, Limits, Plan, planOf, newRecordId, authErrorOf, AuthError } from '../api/pb';
 import { enqueueOp, flush, makeCustomDish, mergeOps, pull, LogEntry, Op, Settings } from './sync';
 
 export type { LogEntry } from './sync';
@@ -197,12 +197,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         applySettings(r.settings);
       }
     } catch (e: any) {
-      if (e?.status === 401) pb.authStore.clear();
+      if (e?.status === 401) endSessionRef.current();
     } finally {
       syncing.current = false;
     }
   }, [setQueue]);
 
+  const endSessionRef = useRef(() => {});
   const queue = useCallback(
     (op: Op) => {
       if (!userIdRef.current) return;
@@ -237,11 +238,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [setQueue]);
 
   // Fresh catalog, limits and account data at launch and whenever the app comes back.
-  const refresh = useCallback(() => {
+  // Signing out (or losing the session): the account keeps everything; this phone
+  // starts over empty (settings stay).
+  const endSession = useCallback(() => {
+    pb.authStore.clear();
+    userIdRef.current = null;
+    setUserRecord(null);
+    setQueue([]);
+    setSaved([]);
+    setCustomDishes([]);
+    setLog([]);
+    setTotalRerolls(0);
+    setTotalYeses(0);
+  }, [setQueue]);
+
+  // Tokens expire after a week, so each launch / foreground renews the session. A token
+  // the server rejects (account deleted, different server) ends the session.
+  const refresh = useCallback(async () => {
     fetchCatalog().then(setCatalog).catch(() => {});
     fetchLimits().then(setLimits).catch(() => {});
+    if (!userIdRef.current) return;
+    try {
+      const res = await pb.collection('users').authRefresh();
+      setUserRecord(res.record);
+    } catch (e) {
+      if (!isNetworkError(e)) return endSession();
+    }
     sync();
-  }, [sync]);
+  }, [sync, endSession]);
+  endSessionRef.current = endSession;
   useEffect(() => {
     if (!hydrated) return;
     refresh();
@@ -505,16 +530,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     signIn: (email, password) => authWith(email, password, false),
     signUp: (email, password) => authWith(email, password, true),
     signOut: () => {
-      // The account keeps everything; this phone starts over empty (settings stay).
-      pb.authStore.clear();
-      userIdRef.current = null;
-      setUserRecord(null);
-      setQueue([]);
-      setSaved([]);
-      setCustomDishes([]);
-      setLog([]);
-      setTotalRerolls(0);
-      setTotalYeses(0);
+      endSession();
       setTab('tonight');
       setMode('verdict');
     },
