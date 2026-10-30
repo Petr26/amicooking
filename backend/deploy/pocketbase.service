@@ -1,0 +1,23 @@
+[Unit]
+Description=Am I Cooking? API (PocketBase)
+After=network.target
+
+[Service]
+Type=simple
+User=pocketbase
+Group=pocketbase
+WorkingDirectory=/opt/amicooking
+ExecStart=/opt/amicooking/pocketbase serve --http=127.0.0.1:8090 --dir=/opt/amicooking/pb_data --migrationsDir=/opt/amicooking/pb_migrations --hooksDir=/opt/amicooking/pb_hooks
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=4096
+# 1 GB RAM sdílí s Riskujem — Go GC držíme pod 200 MB.
+Environment=GOMEMLIMIT=200MiB
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/amicooking/pb_data
+
+[Install]
+WantedBy=multi-user.target
