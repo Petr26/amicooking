@@ -147,9 +147,10 @@ eas submit --platform ios / android
 ## Backend (2026-10-30)
 PocketBase on the Forpsi VPS `185.28.103.160` (shared with Riskuj — don't touch its nginx vhost), served at `https://api.amicooking.com`. Everything lives in `backend/`:
 - `pb_migrations/` — schema (`dishes`, `user_dishes`, `saved`, `log_entries`, extra `users` fields) + seed of the base dishes
-- `pb_hooks/` — dish limits (`limits.js`: anon 10 / free 25 / pro 500, served to the app at `/api/amicooking/config`)
+- `pb_hooks/` — dish limits (`limits.js`: anon 5 / free 12 / pro 500, served to the app at `/api/amicooking/config`)
 - `./deploy.sh` pushes migrations + hooks and restarts `amicooking-api`; `./deploy.sh setup` was the one-off install; `./deploy.sh logs` tails logs
 - Admin UI: `https://api.amicooking.com/_/` (credentials in `backend/.admin.env`, not in git). Base dishes are edited there; a subscription is granted by setting `plan = pro` (+ optional `plan_expires`) on the user.
+- Pro (not on sale yet): no practical dish limit, own steps with timers on own dishes, and base dishes marked `premium` in admin (their steps are only served to Pro; free users never get them in the verdict).
 - Daily DB backup 03:30 to `/var/backups/amicooking` (14 days, same server only).
 
-App side: signed-out users keep everything on the phone (limit 10 dishes = saved ∪ own). Signing in (e-mail + password for now) uploads that data to the account; after that changes are applied locally and queued in a persisted outbox (`src/state/sync.ts`), and the server state is pulled at launch / on foreground. Local dev against a local PocketBase: `EXPO_PUBLIC_API_URL=http://127.0.0.1:8090 npx expo start`.
+App side: signed-out users keep everything on the phone (limit 5 dishes = saved ∪ own). Signing in (e-mail + password for now) uploads that data to the account; after that changes are applied locally and queued in a persisted outbox (`src/state/sync.ts`), and the server state is pulled at launch / on foreground. Local dev against a local PocketBase: `EXPO_PUBLIC_API_URL=http://127.0.0.1:8090 npx expo start`.

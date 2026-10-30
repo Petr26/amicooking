@@ -41,3 +41,17 @@ onRecordCreateRequest((e) => {
   if (!ok) throw new BadRequestError('unknown_dish');
   return e.next();
 }, 'saved');
+
+// Prémiová jídla: postup vidí jen Pro (a admin). Jídlo samo je vidět všem jako ochutnávka.
+onRecordEnrich((e) => {
+  const { planOf } = require(`${__hooks}/limits.js`);
+  if (!e.record.getBool('premium')) return e.next();
+  const auth = e.requestInfo && e.requestInfo.auth;
+  const isPro = auth && (auth.isSuperuser() || planOf(auth) === 'pro');
+  if (!isPro) e.record.hide('steps');
+  return e.next();
+}, 'dishes');
+
+// Vlastní postup u vlastního jídla je Pro funkce.
+onRecordCreateRequest((e) => require(`${__hooks}/limits.js`).guardSteps(e), 'user_dishes');
+onRecordUpdateRequest((e) => require(`${__hooks}/limits.js`).guardSteps(e), 'user_dishes');

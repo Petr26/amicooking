@@ -7,6 +7,8 @@ export type Dish = {
   missKey: string | null;
   fish: boolean;
   custom?: boolean;
+  premium?: boolean; // Pro only (steps come from the API only for Pro)
+  steps?: Step[]; // own steps of a custom dish (Pro)
   dry: string;
   plain: string;
   cs: { name: string; dry: string; plain: string; miss: string };

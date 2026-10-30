@@ -32,6 +32,7 @@ export async function fetchCatalog(): Promise<Catalog> {
       statusNew: r.status_new,
       missKey: null,
       fish: r.fish,
+      premium: !!r.premium,
       dry: r.dry_en,
       plain: r.plain_en,
       cs: { name: r.name_cs, dry: r.dry_cs, plain: r.plain_cs, miss: r.miss_cs },

@@ -2,13 +2,16 @@ import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, fonts } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { Step } from '../data/dishes';
+import { ui } from '../data/strings';
 import { BlockButton, GhostLink, Meta, Segmented } from '../components/ui';
 import { SignInNudge } from '../components/account';
 
 export function SavedScreen() {
   const st = useStore();
   const { T } = st;
-  const [adding, setAdding] = useState(false);
+  // null = list, 'new' = add form, otherwise the id of the custom dish being edited
+  const [form, setForm] = useState<string | null>(null);
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
@@ -17,7 +20,7 @@ export function SavedScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 14 }}>
           <Meta size={10} spacingEm={0.1}>{T.dishCount(st.saved.length)}</Meta>
           <Pressable
-            onPress={() => st.checkRoom() && setAdding(true)}
+            onPress={() => st.checkRoom() && setForm('new')}
             style={({ pressed }) => [s.addBtn, pressed && { backgroundColor: colors.accentPressed }]}
           >
             <Text style={s.addBtnLabel}>+ {T.addDish}</Text>
@@ -25,12 +28,16 @@ export function SavedScreen() {
         </View>
       </View>
       <View style={s.strongRule} />
-      {adding ? <AddDishForm onDone={() => setAdding(false)} /> : <SavedList />}
+      {form ? (
+        <DishForm key={form} editId={form === 'new' ? null : form} onDone={() => setForm(null)} />
+      ) : (
+        <SavedList onEdit={setForm} />
+      )}
     </ScrollView>
   );
 }
 
-function SavedList() {
+function SavedList({ onEdit }: { onEdit: (id: string) => void }) {
   const st = useStore();
   const { T } = st;
   const rows = st.saved.map((id) => st.allDishes.find((d) => d.id === id)).filter(Boolean);
@@ -61,6 +68,9 @@ function SavedList() {
             >
               <Text style={s.cookBtnLabel}>{T.cookTonight}</Text>
             </Pressable>
+            {d!.custom ? (
+              <GhostLink label={T.edit} onPress={() => onEdit(d!.id)} style={{ paddingVertical: 5, paddingHorizontal: 6 }} textStyle={{ fontSize: 10, lineHeight: 10, letterSpacing: 10 * 0.08 }} />
+            ) : null}
             <GhostLink label={T.remove} onPress={() => st.removeSaved(d!.id)} style={{ paddingVertical: 5, paddingHorizontal: 6 }} textStyle={{ fontSize: 10, lineHeight: 10, letterSpacing: 10 * 0.08 }} />
           </View>
         </View>
@@ -70,23 +80,43 @@ function SavedList() {
   );
 }
 
-function AddDishForm({ onDone }: { onDone: () => void }) {
+type StepDraft = { text: string; mins: string };
+
+function DishForm({ editId, onDone }: { editId: string | null; onDone: () => void }) {
   const st = useStore();
   const { T } = st;
-  const [name, setName] = useState('');
-  const [mins, setMins] = useState(20);
-  const [pans2, setPans2] = useState(false);
-  const [note, setNote] = useState('');
+  const editing = editId ? st.allDishes.find((d) => d.id === editId) : undefined;
+  const [name, setName] = useState(editing?.name ?? '');
+  const [mins, setMins] = useState(editing?.time ?? 20);
+  const [pans2, setPans2] = useState(editing?.pans2 ?? false);
+  const [note, setNote] = useState(editing && editing.dry !== ui.en.defaultNote ? editing.dry : '');
+  const [steps, setSteps] = useState<StepDraft[]>(
+    () => editing?.steps?.map((x) => ({ text: x.t, mins: x.m ? String(x.m) : '' })) ?? []
+  );
+
+  const setStep = (i: number, patch: Partial<StepDraft>) =>
+    setSteps((list) => list.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 
   const save = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (st.addCustomDish(trimmed, mins, pans2, note.trim())) onDone();
+    // Own steps are written once and shown in both languages.
+    const out: Step[] = steps
+      .filter((x) => x.text.trim())
+      .map((x) => {
+        const m = parseInt(x.mins, 10);
+        const t = x.text.trim();
+        return { t, d: '', tc: t, dc: '', ...(m > 0 ? { m: Math.min(m, 600) } : {}) };
+      });
+    if (editId) {
+      st.editCustomDish(editId, trimmed, mins, pans2, note.trim(), out);
+      onDone();
+    } else if (st.addCustomDish(trimmed, mins, pans2, note.trim(), out)) onDone();
   };
 
   return (
     <View style={{ padding: 20 }}>
-      <Text style={s.formTitle}>{T.formTitle}</Text>
+      <Text style={s.formTitle}>{editId ? T.formTitleEdit : T.formTitle}</Text>
       <Text style={s.formSub}>{T.formSub}</Text>
       <Meta style={{ marginBottom: 8 }}>{T.nameLbl}</Meta>
       <TextInput
@@ -119,10 +149,52 @@ function AddDishForm({ onDone }: { onDone: () => void }) {
         onChangeText={setNote}
         placeholder={T.notePh}
         placeholderTextColor={colors.faint}
-        style={[s.input, { fontFamily: fonts.regular, fontSize: 15, marginBottom: 22 }]}
+        style={[s.input, { fontFamily: fonts.regular, fontSize: 15 }]}
       />
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+        <Meta>{T.stepsLbl}</Meta>
+        {!st.isPro ? <Meta size={9} weight="800" color={colors.accent}>Pro</Meta> : null}
+      </View>
+      {st.isPro ? (
+        <View style={{ marginBottom: 22 }}>
+          {steps.map((x, i) => (
+            <View key={i} style={s.stepRow}>
+              <Text style={s.stepNum}>{i + 1}</Text>
+              <TextInput
+                value={x.text}
+                onChangeText={(text) => setStep(i, { text })}
+                placeholder={T.stepPh}
+                placeholderTextColor={colors.faint}
+                multiline
+                style={[s.input, s.stepInput]}
+              />
+              <TextInput
+                value={x.mins}
+                onChangeText={(v) => setStep(i, { mins: v.replace(/[^0-9]/g, '').slice(0, 3) })}
+                placeholder={T.minWord}
+                placeholderTextColor={colors.faint}
+                keyboardType="number-pad"
+                style={[s.input, s.stepMins]}
+              />
+              <GhostLink
+                label="×"
+                color={colors.faint}
+                onPress={() => setSteps((list) => list.filter((_, j) => j !== i))}
+                style={{ paddingVertical: 12 }}
+                textStyle={{ fontSize: 16, lineHeight: 16 }}
+              />
+            </View>
+          ))}
+          <GhostLink label={T.addStep} onPress={() => setSteps((list) => [...list, { text: '', mins: '' }])} style={{ paddingHorizontal: 0 }} />
+        </View>
+      ) : (
+        <Pressable onPress={st.showPro} style={({ pressed }) => [s.locked, pressed && { backgroundColor: colors.inkWash7 }]}>
+          <Text style={s.lockedText}>{T.proLocked}</Text>
+          <Text style={s.lockedArrow}>→</Text>
+        </Pressable>
+      )}
       <View style={{ gap: 8 }}>
-        <BlockButton label={T.addIt} onPress={save} disabledLook={!name.trim()} />
+        <BlockButton label={editId ? T.saveChanges : T.addIt} onPress={save} disabledLook={!name.trim()} />
         <GhostLink label={T.neverMind} onPress={onDone} />
       </View>
     </View>
@@ -213,6 +285,28 @@ const s = StyleSheet.create({
     color: colors.muted55,
     marginBottom: 18,
   },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  stepNum: {
+    width: 14,
+    paddingTop: 14,
+    fontFamily: fonts.extrabold,
+    fontSize: 13,
+    color: colors.accentDeep,
+  },
+  stepInput: { flex: 1, width: undefined, fontFamily: fonts.semibold, fontSize: 15, marginBottom: 10 },
+  stepMins: { width: 56, fontFamily: fonts.semibold, fontSize: 15, marginBottom: 10, textAlign: 'center' },
+  locked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.ruleStrong,
+    marginBottom: 22,
+  },
+  lockedText: { flex: 1, fontFamily: fonts.regular, fontSize: 13.5, lineHeight: 13.5 * 1.45, color: colors.muted60 },
+  lockedArrow: { fontFamily: fonts.extrabold, fontSize: 13, color: colors.accent },
   input: {
     width: '100%',
     paddingVertical: 13,

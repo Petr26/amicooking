@@ -14,7 +14,8 @@ export type Tab = 'tonight' | 'saved' | 'log' | 'you';
 export type Mode = 'verdict' | 'committed' | 'optout' | 'cooking' | 'cookdone';
 
 // limit: tried to go past the dish limit. overflow: n dishes from this phone did not fit the account.
-export type Notice = { kind: 'limit' } | { kind: 'overflow'; n: number } | null;
+// pro: tried a Pro feature without Pro.
+export type Notice = { kind: 'limit' } | { kind: 'pro' } | { kind: 'overflow'; n: number } | null;
 
 type PersistedState = {
   saved: string[];
@@ -104,7 +105,11 @@ export type Store = {
   cookBack: () => void;
   cookRestart: () => void;
   cookLogIt: () => void;
-  addCustomDish: (name: string, mins: number, pans2: boolean, note: string) => boolean;
+  isPro: boolean;
+  premiumCount: number;
+  addCustomDish: (name: string, mins: number, pans2: boolean, note: string, steps: Step[]) => boolean;
+  editCustomDish: (id: string, name: string, mins: number, pans2: boolean, note: string, steps: Step[]) => void;
+  showPro: () => void;
   checkRoom: () => boolean;
   goToVerdict: () => void;
   openAuth: () => void;
@@ -254,16 +259,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Tokens expire after a week, so each launch / foreground renews the session. A token
   // the server rejects (account deleted, different server) ends the session.
+  // The catalog is fetched after the session is renewed: premium steps depend on the plan.
   const refresh = useCallback(async () => {
-    fetchCatalog().then(setCatalog).catch(() => {});
     fetchLimits().then(setLimits).catch(() => {});
-    if (!userIdRef.current) return;
-    try {
-      const res = await pb.collection('users').authRefresh();
-      setUserRecord(res.record);
-    } catch (e) {
-      if (!isNetworkError(e)) return endSession();
+    if (userIdRef.current) {
+      try {
+        const res = await pb.collection('users').authRefresh();
+        setUserRecord(res.record);
+      } catch (e) {
+        if (!isNetworkError(e)) endSession();
+      }
     }
+    fetchCatalog().then(setCatalog).catch(() => {});
     sync();
   }, [sync, endSession]);
   endSessionRef.current = endSession;
@@ -311,19 +318,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // "My dishes" = saved ∪ custom; one shared limit (10 on this phone, 25 signed in, more with a plan).
   const plan = planOf(userRecord);
+  const isPro = !!user && plan === 'pro';
+  const premiumCount = catalog.dishes.filter((d) => d.premium).length;
   const dishLimit = user ? limits[plan] : limits.anon;
   const myKeys = useMemo(() => new Set([...saved, ...customDishes.map((d) => d.id)]), [saved, customDishes]);
   const myDishCount = myKeys.size;
   const roomFor = (key?: string) => (key && myKeys.has(key)) || myDishCount < dishLimit;
 
+  // Premium dishes only reach the verdict with Pro.
   const pool = useMemo(() => {
-    let p = allDishes.filter((d) => d.time <= maxTime && (!noFish || !d.fish));
+    const open = allDishes.filter((d) => isPro || !d.premium);
+    let p = open.filter((d) => d.time <= maxTime && (!noFish || !d.fish));
     if (breakRotation) {
       const fresh = p.filter((d) => d.statusNew);
       if (fresh.length) p = fresh;
     }
-    return p.length ? p : allDishes;
-  }, [allDishes, maxTime, noFish, breakRotation]);
+    return p.length ? p : open;
+  }, [allDishes, isPro, maxTime, noFish, breakRotation]);
 
   const dish = pool[vIdx % pool.length];
   const cookDish = allDishes.find((d) => d.id === cookDishId) || allDishes[0];
@@ -331,9 +342,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const stepsFor = useCallback(
     (id: string): Step[] => {
       if (catalog.steps[id]) return catalog.steps[id];
+      const own = customDishes.find((d) => d.id === id)?.steps;
+      if (own?.length) return own;
       return [{ t: ui.en.customStepT, d: ui.en.customStepD, tc: ui.cs.customStepT, dc: ui.cs.customStepD }];
     },
-    [catalog]
+    [catalog, customDishes]
   );
   const cookSteps = stepsFor(cookDish.id);
 
@@ -384,6 +397,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setQueue(ops);
     setAuthOpen(false);
     await sync();
+    fetchCatalog().then(setCatalog).catch(() => {});
   };
 
   const authWith = async (email: string, password: string, create: boolean): Promise<AuthError | null> => {
@@ -420,6 +434,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     user,
     plan,
     limits,
+    isPro,
+    premiumCount,
     myDishCount,
     dishLimit,
     notice,
@@ -473,6 +489,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     removeSaved: unsave,
     cookFromSaved: (id) => {
+      if (!isPro && allDishes.find((d) => d.id === id)?.premium) return setNotice({ kind: 'pro' });
       setCookDishId(id);
       setCookStep(0);
       countYes();
@@ -501,18 +518,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setCookStep(0);
       setTab('log');
     },
-    addCustomDish: (name, mins, pans2, note) => {
+    addCustomDish: (name, mins, pans2, note, steps) => {
       if (!roomFor()) {
         setNotice({ kind: 'limit' });
         return false;
       }
+      if (!isPro) steps = [];
       const id = newRecordId();
-      setCustomDishes((c) => [...c, makeCustomDish(id, name, mins, pans2, note)]);
+      setCustomDishes((c) => [...c, makeCustomDish(id, name, mins, pans2, note, steps)]);
       setSaved((s) => [...s, id]);
-      queue({ k: 'dish', id, name, time: mins, pans2, note });
+      queue({ k: 'dish', id, name, time: mins, pans2, note, steps });
       queue({ k: 'save', dish: id });
       return true;
     },
+    editCustomDish: (id, name, mins, pans2, note, steps) => {
+      const prev = customDishes.find((d) => d.id === id);
+      if (!prev) return;
+      // Without Pro the steps stay as they were.
+      if (!isPro) steps = prev.steps || [];
+      setCustomDishes((c) => c.map((d) => (d.id === id ? makeCustomDish(id, name, mins, pans2, note, steps) : d)));
+      queue({ k: 'dishEdit', id, name, time: mins, pans2, note, steps });
+    },
+    showPro: () => setNotice({ kind: 'pro' }),
     checkRoom: () => {
       if (roomFor()) return true;
       setNotice({ kind: 'limit' });

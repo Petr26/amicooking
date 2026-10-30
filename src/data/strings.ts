@@ -49,6 +49,10 @@ export type UIStrings = {
   limitFree: (max: number) => string; limitPro: (max: number) => string;
   overflowTitle: string; overflowBody: (n: number) => string;
   accountNote: string;
+  // Pro
+  proTitle: string; proBody: (premium: number) => string; proSoon: string;
+  stepsLbl: string; stepPh: string; addStep: string; proLocked: string;
+  edit: string; saveChanges: string; formTitleEdit: string;
 };
 
 export const ui: Record<Lang, UIStrings> = {
@@ -116,6 +120,12 @@ export const ui: Record<Lang, UIStrings> = {
     overflowTitle: 'Some did not fit.',
     overflowBody: (n) => n + (n === 1 ? ' dish' : ' dishes') + ' from this phone did not fit into the account limit and were left off.',
     accountNote: 'Saved dishes, your own dishes, the log and these settings follow the account.',
+    proTitle: 'Pro.',
+    proBody: (n) => 'No dish limit, your own steps with timers' + (n ? ', and ' + n + (n === 1 ? ' dish' : ' dishes') + ' only Pro gets' : '') + '. Not on sale yet. Soon.',
+    proSoon: 'Coming soon',
+    stepsLbl: 'Steps', stepPh: 'e.g. Fry the onion until it gives up', addStep: '+ Step',
+    proLocked: 'Your own steps with timers come with Pro.',
+    edit: 'Edit', saveChanges: 'Save it', formTitleEdit: 'Your dish, revised.',
   },
   cs: {
     appTitle: 'Vařím dneska?', headerMeta: 'Sólo · út 19:04', tonightLabel: 'Dnes večer', yesWord: 'Jo.',
@@ -181,6 +191,12 @@ export const ui: Record<Lang, UIStrings> = {
     overflowTitle: 'Něco se nevešlo.',
     overflowBody: (n) => n + ' ' + (n === 1 ? 'jídlo' : n <= 4 ? 'jídla' : 'jídel') + ' z tohohle telefonu se nevešlo do limitu účtu a zůstalo stranou.',
     accountNote: 'Uložená jídla, vaše vlastní jídla, záznam i tohle nastavení jdou s účtem.',
+    proTitle: 'Pro.',
+    proBody: (n) => 'Žádný limit jídel, vlastní postup s odpočty' + (n ? ' a ' + n + (n === 1 ? ' jídlo' : n <= 4 ? ' jídla' : ' jídel') + ' jen pro Pro' : '') + '. Zatím se neprodává. Brzy.',
+    proSoon: 'Brzy',
+    stepsLbl: 'Postup', stepPh: 'např. Osmahněte cibuli, dokud se nevzdá', addStep: '+ Krok',
+    proLocked: 'Vlastní postup s odpočty je součást Pro.',
+    edit: 'Upravit', saveChanges: 'Uložit', formTitleEdit: 'Vaše jídlo, opravené.',
   },
 };
 

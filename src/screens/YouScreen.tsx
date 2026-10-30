@@ -34,6 +34,15 @@ export function YouScreen() {
       ) : (
         <SignInNudge style={{ marginHorizontal: 20, marginTop: 18 }} />
       )}
+      {!st.isPro ? (
+        <View style={s.pro}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <Text style={s.proTitle}>{T.proTitle}</Text>
+            <Meta size={9.5} weight="800" spacingEm={0.1} color={colors.accent}>{T.proSoon}</Meta>
+          </View>
+          <Text style={[s.smallNote, { paddingHorizontal: 0 }]}>{T.proBody(st.premiumCount)}</Text>
+        </View>
+      ) : null}
       <Meta style={{ paddingHorizontal: 20, paddingTop: 18 }}>{T.language}</Meta>
       <Segmented
         style={{ marginTop: 10, marginHorizontal: 20 }}
@@ -105,6 +114,20 @@ const s = StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.ruleHairline,
+  },
+  pro: {
+    marginHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.ruleHairline,
+  },
+  proTitle: {
+    fontFamily: fonts.extrabold,
+    fontSize: 22,
+    lineHeight: 22,
+    letterSpacing: 22 * -0.02,
+    color: colors.accent,
   },
   email: {
     fontFamily: fonts.extrabold,

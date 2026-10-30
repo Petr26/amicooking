@@ -1,7 +1,7 @@
 // Limity „mých jídel“ = uložená ∪ vlastní (sdílí jeden limit).
 // Anonymní limit hlídá jen appka (data jsou lokální); zbylé hlídá server.
 module.exports = {
-  LIMITS: { anon: 10, free: 25, pro: 500 },
+  LIMITS: { anon: 5, free: 12, pro: 500 },
 
   // Efektivní plán uživatele — pro jen dokud nevypršel plan_expires (prázdné = bez expirace).
   planOf(user) {
@@ -19,6 +19,19 @@ module.exports = {
       .bind({ u: userId })
       .one(res);
     return res.n;
+  },
+
+  // Vlastní postup smí nastavit jen Pro. Po vypršení Pro jde jídlo dál upravovat,
+  // pokud se postup nemění.
+  guardSteps(e) {
+    if (e.hasSuperuserAuth()) return e.next();
+    const raw = e.record.getString('steps');
+    const hasSteps = raw !== '' && raw !== 'null' && raw !== '[]';
+    const unchanged = !e.record.isNew() && raw === e.record.original().getString('steps');
+    if (hasSteps && !unchanged && !(e.auth && module.exports.planOf(e.auth) === 'pro')) {
+      throw new ForbiddenError('pro_only');
+    }
+    return e.next();
   },
 
   // Patří klíč už mezi „moje jídla“? (pak nový záznam limit nezvyšuje)

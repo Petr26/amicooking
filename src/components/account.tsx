@@ -32,6 +32,10 @@ export function NoticeSheet() {
   if (notice.kind === 'overflow') {
     title = T.overflowTitle;
     body = T.overflowBody(notice.n);
+  } else if (notice.kind === 'pro') {
+    title = T.proTitle;
+    body = T.proBody(st.premiumCount);
+    if (!st.user) cta = { label: T.signIn, onPress: st.openAuth };
   } else if (!st.user) {
     body = T.limitAnon(st.dishLimit, st.limits.free);
     cta = { label: T.signIn, onPress: st.openAuth };

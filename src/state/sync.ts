@@ -1,6 +1,6 @@
 import { ClientResponseError } from 'pocketbase';
 import { pb, isLimitError, isNetworkError } from '../api/pb';
-import { Dish } from '../data/dishes';
+import { Dish, Step } from '../data/dishes';
 import { ui, Lang } from '../data/strings';
 
 // Signed-in users: every change is applied locally first and queued here as an op.
@@ -9,7 +9,8 @@ import { ui, Lang } from '../data/strings';
 export type Op =
   | { k: 'save'; dish: string }
   | { k: 'unsave'; dish: string }
-  | { k: 'dish'; id: string; name: string; time: number; pans2: boolean; note: string }
+  | { k: 'dish'; id: string; name: string; time: number; pans2: boolean; note: string; steps: Step[] }
+  | { k: 'dishEdit'; id: string; name: string; time: number; pans2: boolean; note: string; steps: Step[] }
   | { k: 'log'; dish: string; at: string }
   | { k: 'settings'; settings: Settings }
   | { k: 'counters'; rerolls: number; yeses: number };
@@ -18,9 +19,10 @@ export type Settings = { maxTime: number; noFish: boolean; breakRotation: boolea
 
 export type LogEntry = { seed: number } | { custom: true; dishId: string; at?: string };
 
-export function makeCustomDish(id: string, name: string, mins: number, pans2: boolean, note: string): Dish {
+export function makeCustomDish(id: string, name: string, mins: number, pans2: boolean, note: string, steps: Step[] = []): Dish {
   return {
     id,
+    steps,
     name,
     time: mins,
     pans2,
@@ -55,7 +57,9 @@ async function send(op: Op, userId: string) {
       return;
     }
     case 'dish':
-      return pb.collection('user_dishes').create({ id: op.id, user: userId, name: op.name, time: op.time, pans2: op.pans2, note: op.note });
+      return pb.collection('user_dishes').create({ id: op.id, user: userId, name: op.name, time: op.time, pans2: op.pans2, note: op.note, steps: op.steps });
+    case 'dishEdit':
+      return pb.collection('user_dishes').update(op.id, { name: op.name, time: op.time, pans2: op.pans2, note: op.note, steps: op.steps });
     case 'log':
       return pb.collection('log_entries').create({ user: userId, dish: op.dish, kind: 'cooked', at: op.at });
     case 'settings':
@@ -103,7 +107,7 @@ export async function pull(userId: string): Promise<Remote> {
   return {
     user,
     saved: saved.map((r) => r.dish),
-    customDishes: dishes.map((r) => makeCustomDish(r.id, r.name, r.time, r.pans2, r.note)),
+    customDishes: dishes.map((r) => makeCustomDish(r.id, r.name, r.time, r.pans2, r.note, Array.isArray(r.steps) ? r.steps : [])),
     log: log.map((r) => ({ custom: true as const, dishId: r.dish, at: r.at })),
     settings: s,
     totalRerolls: user.total_rerolls || 0,
@@ -122,7 +126,7 @@ export function mergeOps(local: {
 }): Op[] {
   const ops: Op[] = [];
   for (const d of local.customDishes) {
-    ops.push({ k: 'dish', id: d.id, name: d.name, time: d.time, pans2: d.pans2, note: d.dry === ui.en.defaultNote ? '' : d.dry });
+    ops.push({ k: 'dish', id: d.id, name: d.name, time: d.time, pans2: d.pans2, note: d.dry === ui.en.defaultNote ? '' : d.dry, steps: d.steps || [] });
   }
   for (const id of local.saved) ops.push({ k: 'save', dish: id });
   for (const e of [...local.log].reverse()) {
